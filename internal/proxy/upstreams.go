@@ -61,7 +61,27 @@ type Route struct {
 	Rest     string // path after the prefix
 }
 
-var genericRe = regexp.MustCompile(`^/([a-z0-9.-]+)(?::(\d+))?(/.*)?$`)
+var genericRe = regexp.MustCompile(`^/([A-Za-z0-9.:\[\]-]+?)(?::(\d+))?(/.*)?$`)
+var hostnameRe = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// validHost: a real hostname or IP literal. ".." and friends never reach a
+// dialer; private and link-local IP literals only with allowLoopback (the
+// same switch that admits LiteLLM/Ollama on this machine).
+func validHost(host string, allowLoopback bool) (loop bool, ok bool) {
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		if ip.IsLoopback() {
+			return true, allowLoopback
+		}
+		if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+			return false, allowLoopback
+		}
+		return false, true
+	}
+	if host == "localhost" {
+		return true, allowLoopback
+	}
+	return false, hostnameRe.MatchString(host)
+}
 
 func isLoopback(host string) bool {
 	if host == "localhost" {
@@ -93,8 +113,8 @@ func Resolve(path string, allowLoopback bool) (Route, bool) {
 				return Route{}, false
 			}
 		}
-		loop := isLoopback(host)
-		if loop && !allowLoopback {
+		loop, ok := validHost(host, allowLoopback)
+		if !ok {
 			return Route{}, false
 		}
 		provider := strings.TrimPrefix(host, "api.")

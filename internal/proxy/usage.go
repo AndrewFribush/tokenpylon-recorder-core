@@ -425,6 +425,11 @@ func (bu *BodyUsage) Write(p []byte) {
 
 func (bu *BodyUsage) Result() *Usage {
 	u := &Usage{}
+	// Only a JSON object is scanned; anything else (HTML error page, binary)
+	// yields nothing rather than a lucky match.
+	if len(bytes.TrimLeft(bu.head, " \t\r\n")) == 0 || bytes.TrimLeft(bu.head, " \t\r\n")[0] != '{' {
+		return nil
+	}
 	// Whole-body parse when the body was small enough to be in the head.
 	if len(bu.head) < headBytes {
 		if w := FromBody(bu.style, bu.head); w != nil {

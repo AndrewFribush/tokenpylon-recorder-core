@@ -220,16 +220,24 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 	w.WriteHeader(res.StatusCode)
 	flusher, _ := w.(http.Flusher)
 	isStream := strings.Contains(res.Header.Get("Content-Type"), "text/event-stream")
+	// A body we cannot read as sent (compressed despite Accept-Encoding:
+	// identity, or not JSON/SSE at all) yields no usage: unknown, never a
+	// number scraped out of compressed bytes.
+	enc := strings.ToLower(res.Header.Get("Content-Encoding"))
+	readable := enc == "" || enc == "identity"
 	// Recording runs off the data path: chunks are copied into a bounded
 	// queue and parsed by their own goroutine; a full queue drops for
 	// recording only, never for the client.
 	var su *StreamUsage
 	var bu *BodyUsage
 	var rec *recorder
-	if isStream {
+	switch {
+	case !readable:
+		rec = newRecorder(func([]byte) {})
+	case isStream:
 		su = NewStreamUsage(rt.Upstream.Style)
 		rec = newRecorder(su.Write)
-	} else {
+	default:
 		bu = NewBodyUsage(rt.Upstream.Style)
 		rec = newRecorder(bu.Write)
 	}
@@ -266,7 +274,7 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 	var u *Usage
 	if su != nil {
 		u = su.Result()
-	} else {
+	} else if bu != nil {
 		u = bu.Result()
 	}
 	var ttft *time.Time
