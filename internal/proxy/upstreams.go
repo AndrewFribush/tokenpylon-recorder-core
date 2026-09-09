@@ -26,33 +26,34 @@ type Upstream struct {
 
 // Upstreams: path prefix -> upstream.
 var Upstreams = map[string]Upstream{
-	"openai":         {Host: "api.openai.com", Style: StyleOpenAI, Direct: true},
-	"anthropic":      {Host: "api.anthropic.com", Style: StyleAnthropic, Direct: true},
-	"gemini":         {Host: "generativelanguage.googleapis.com", Style: StyleGoogle, Direct: true},
-	"openrouter":     {Host: "openrouter.ai", BasePath: "/api", Style: StyleOpenAI},
-	"hf-router":      {Host: "router.huggingface.co", Style: StyleOpenAI},
-	"deepseek":       {Host: "api.deepseek.com", Style: StyleOpenAI, Direct: true},
-	"moonshot":       {Host: "api.moonshot.ai", Style: StyleOpenAI, Direct: true},
-	"zai":            {Host: "api.z.ai", BasePath: "/api/paas", Style: StyleOpenAI, Direct: true},
-	"minimax":        {Host: "api.minimax.io", Style: StyleOpenAI, Direct: true},
-	"dashscope_intl": {Host: "dashscope-intl.aliyuncs.com", BasePath: "/compatible-mode", Style: StyleOpenAI, Direct: true},
-	"byteplus":       {Host: "ark.ap-southeast.bytepluses.com", BasePath: "/api", Style: StyleOpenAI, Direct: true},
-	"siliconflow":    {Host: "api.siliconflow.com", Style: StyleOpenAI, Direct: true},
-	"stepfun":        {Host: "api.stepfun.com", Style: StyleOpenAI, Direct: true},
-	"01ai":           {Host: "api.01.ai", Style: StyleOpenAI, Direct: true},
-	"groq":           {Host: "api.groq.com", BasePath: "/openai", Style: StyleOpenAI, Direct: true},
-	"cerebras":       {Host: "api.cerebras.ai", Style: StyleOpenAI, Direct: true},
-	"together_ai":    {Host: "api.together.xyz", Style: StyleOpenAI, Direct: true},
-	"fireworks_ai":   {Host: "api.fireworks.ai", BasePath: "/inference", Style: StyleOpenAI, Direct: true},
-	"deepinfra":      {Host: "api.deepinfra.com", BasePath: "/v1/openai", Style: StyleOpenAI, Direct: true},
-	"xai":            {Host: "api.x.ai", Style: StyleOpenAI, Direct: true},
-	"mistral":        {Host: "api.mistral.ai", Style: StyleOpenAI, Direct: true},
-	"perplexity":     {Host: "api.perplexity.ai", Style: StyleOpenAI, Direct: true},
+	"openai":            {Host: "api.openai.com", Style: StyleOpenAI, Direct: true},
+	"anthropic":         {Host: "api.anthropic.com", Style: StyleAnthropic, Direct: true},
+	"gemini":            {Host: "generativelanguage.googleapis.com", Style: StyleGoogle, Direct: true},
+	"openrouter":        {Host: "openrouter.ai", BasePath: "/api", Style: StyleOpenAI},
+	"vercel_ai_gateway": {Host: "ai-gateway.vercel.sh", Style: StyleOpenAI},
+	"hf-router":         {Host: "router.huggingface.co", Style: StyleOpenAI},
+	"deepseek":          {Host: "api.deepseek.com", Style: StyleOpenAI, Direct: true},
+	"moonshot":          {Host: "api.moonshot.ai", Style: StyleOpenAI, Direct: true},
+	"zai":               {Host: "api.z.ai", BasePath: "/api/paas", Style: StyleOpenAI, Direct: true},
+	"minimax":           {Host: "api.minimax.io", Style: StyleOpenAI, Direct: true},
+	"dashscope_intl":    {Host: "dashscope-intl.aliyuncs.com", BasePath: "/compatible-mode", Style: StyleOpenAI, Direct: true},
+	"byteplus":          {Host: "ark.ap-southeast.bytepluses.com", BasePath: "/api", Style: StyleOpenAI, Direct: true},
+	"siliconflow":       {Host: "api.siliconflow.com", Style: StyleOpenAI, Direct: true},
+	"stepfun":           {Host: "api.stepfun.com", Style: StyleOpenAI, Direct: true},
+	"01ai":              {Host: "api.01.ai", Style: StyleOpenAI, Direct: true},
+	"groq":              {Host: "api.groq.com", BasePath: "/openai", Style: StyleOpenAI, Direct: true},
+	"cerebras":          {Host: "api.cerebras.ai", Style: StyleOpenAI, Direct: true},
+	"together_ai":       {Host: "api.together.xyz", Style: StyleOpenAI, Direct: true},
+	"fireworks_ai":      {Host: "api.fireworks.ai", BasePath: "/inference", Style: StyleOpenAI, Direct: true},
+	"deepinfra":         {Host: "api.deepinfra.com", BasePath: "/v1/openai", Style: StyleOpenAI, Direct: true},
+	"xai":               {Host: "api.x.ai", Style: StyleOpenAI, Direct: true},
+	"mistral":           {Host: "api.mistral.ai", Style: StyleOpenAI, Direct: true},
+	"perplexity":        {Host: "api.perplexity.ai", Style: StyleOpenAI, Direct: true},
 }
 
 // Gateways: upstreams that route to other hosts. Their name goes in
 // `gateway`; the billed provider is still the gateway (it charges you).
-var Gateways = map[string]bool{"openrouter": true, "hf-router": true}
+var Gateways = map[string]bool{"openrouter": true, "hf-router": true, "vercel_ai_gateway": true}
 
 // Route is a resolved request target.
 type Route struct {
