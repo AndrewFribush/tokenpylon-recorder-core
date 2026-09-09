@@ -37,6 +37,7 @@ type Event struct {
 	TZOffsetMin     *int    `json:"tz_offset_min"`
 	LogicalCallID   *string `json:"logical_call_id"` // groups retries/fallbacks of one application call
 	Attempt         int     `json:"attempt"`
+	Calls           int     `json:"calls"` // 1 for an observed call; n for an imported daily aggregate standing for n calls
 
 	Provider       string  `json:"provider"`        // who bills: openai, anthropic, openrouter, ...
 	Gateway        *string `json:"gateway"`         // litellm, openrouter, ... when a gateway sat in front
@@ -193,6 +194,12 @@ func (e *Event) Validate() error {
 	}
 	if e.Attempt < 1 {
 		e.Attempt = 1
+	}
+	if e.Calls < 1 {
+		e.Calls = 1
+	}
+	if e.Calls > 10_000_000 {
+		return errf("calls")
 	}
 	if e.Schema == 0 {
 		e.Schema = SchemaVersion

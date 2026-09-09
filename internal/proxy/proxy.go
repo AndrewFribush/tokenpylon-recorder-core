@@ -220,11 +220,19 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 	w.WriteHeader(res.StatusCode)
 	flusher, _ := w.(http.Flusher)
 	isStream := strings.Contains(res.Header.Get("Content-Type"), "text/event-stream")
+	// Recording runs off the data path: chunks are copied into a bounded
+	// queue and parsed by their own goroutine; a full queue drops for
+	// recording only, never for the client.
 	var su *StreamUsage
+	var bu *BodyUsage
+	var rec *recorder
 	if isStream {
 		su = NewStreamUsage(rt.Upstream.Style)
+		rec = newRecorder(su.Write)
+	} else {
+		bu = NewBodyUsage(rt.Upstream.Style)
+		rec = newRecorder(bu.Write)
 	}
-	var tail []byte
 	var firstByte time.Time
 	buf := make([]byte, 32<<10)
 	complete := false
@@ -243,17 +251,7 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 			if flusher != nil {
 				flusher.Flush()
 			}
-			func() {
-				defer func() { _ = recover() }() // nothing in recording may stop the bytes
-				if su != nil {
-					su.Write(chunk)
-				} else {
-					tail = append(tail, chunk...)
-					if len(tail) > tailBytes {
-						tail = tail[len(tail)-tailBytes:]
-					}
-				}
-			}()
+			rec.Write(chunk)
 		}
 		if rerr == io.EOF {
 			complete = true
@@ -264,11 +262,12 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 			break
 		}
 	}
+	rec.Close()
 	var u *Usage
 	if su != nil {
 		u = su.Result()
 	} else {
-		u = FromBody(rt.Upstream.Style, tail)
+		u = bu.Result()
 	}
 	var ttft *time.Time
 	if !firstByte.IsZero() {
@@ -277,18 +276,32 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 	h.record(rt, started, res, u, head, pr, ttft, cancelled, complete, op, mode, callID, attempt, gatewayHint, isStream)
 }
 
+// peekReader keeps the first bytes of a request body while the transport
+// consumes it. The transport may still be reading when the response
+// arrives, so access is locked and Head returns a copy.
 type peekReader struct {
 	r    io.Reader
 	max  int
+	mu   sync.Mutex
 	head []byte
 }
 
 func (p *peekReader) Read(b []byte) (int, error) {
 	n, err := p.r.Read(b)
-	if n > 0 && len(p.head) < p.max {
-		p.head = append(p.head, b[:min(n, p.max-len(p.head))]...)
+	if n > 0 {
+		p.mu.Lock()
+		if len(p.head) < p.max {
+			p.head = append(p.head, b[:min(n, p.max-len(p.head))]...)
+		}
+		p.mu.Unlock()
 	}
 	return n, err
+}
+
+func (p *peekReader) Head() []byte {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]byte(nil), p.head...)
 }
 
 var safeHost = regexp.MustCompile(`[^a-z0-9_.-]`)
@@ -296,7 +309,7 @@ var safeHost = regexp.MustCompile(`[^a-z0-9_.-]`)
 func (h *Handler) record(rt Route, started time.Time, res *http.Response, u *Usage, head []byte, pr *peekReader, firstByte *time.Time, cancelled, complete bool, op, mode, callID string, attempt int, gatewayHint string, stream bool) {
 	defer func() { _ = recover() }()
 	if pr != nil && len(head) == 0 {
-		head = pr.head
+		head = pr.Head()
 	}
 	e := &event.Event{
 		Schema: event.SchemaVersion, InstallID: h.opts.InstallID,

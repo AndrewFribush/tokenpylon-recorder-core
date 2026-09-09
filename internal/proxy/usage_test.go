@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -109,5 +110,56 @@ func TestResolve(t *testing.T) {
 	}
 	if _, ok := Resolve("/nope/v1", false); ok {
 		t.Fatal("unknown accepted")
+	}
+}
+
+func TestAbsentCacheStaysNil(t *testing.T) {
+	u := FromBody(StyleOpenAI, []byte(`{"id":"x","model":"m","usage":{"prompt_tokens":10,"completion_tokens":2}}`))
+	if u.Cached != nil || *u.Input != 10 {
+		t.Fatalf("absent cache became %v", u.Cached)
+	}
+	u = FromBody(StyleOpenAI, []byte(`{"usage":{"prompt_tokens":10,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":0}}}`))
+	if u.Cached == nil || *u.Cached != 0 {
+		t.Fatal("explicit zero lost")
+	}
+}
+
+func TestBodyUsageLarge(t *testing.T) {
+	bu := NewBodyUsage(StyleOpenAI)
+	big := `{"id":"emb-1","object":"list","model":"text-embedding-9","data":[` + strings.Repeat(`{"embedding":[0.1,0.2,0.3]},`, 20000) + `{"embedding":[1]}],"usage":{"prompt_tokens":777,"total_tokens":777}}`
+	for i := 0; i < len(big); i += 1000 {
+		bu.Write([]byte(big[i:min(i+1000, len(big))]))
+	}
+	u := bu.Result()
+	if u == nil || u.Input == nil || *u.Input != 777 || *u.RequestID != "emb-1" || *u.Model != "text-embedding-9" {
+		t.Fatalf("bad: %+v", u)
+	}
+}
+
+func TestTopLevelStringEscapes(t *testing.T) {
+	m := TopLevelModel([]byte(`{"model":"openai\/gpt-4.1","messages":[]}`))
+	if m == nil || *m != "openai/gpt-4.1" {
+		t.Fatalf("got %v", m)
+	}
+	m = TopLevelModel([]byte(`{"messages":[{"content":"\"model\":\"x\""}],"model":"gé"}`))
+	if m == nil || *m != "gé" {
+		t.Fatalf("got %v", m)
+	}
+}
+
+func TestIncludeUsageKeepsNumbers(t *testing.T) {
+	out := string(WithIncludeUsage([]byte(`{"model":"m","stream":true,"seed":9007199254740993,"temperature":0.10}`)))
+	if !strings.Contains(out, "9007199254740993") || !strings.Contains(out, "0.10") || !strings.Contains(out, `"include_usage":true`) {
+		t.Fatalf("numbers changed: %s", out)
+	}
+}
+
+func TestStreamSkipsContentDeltas(t *testing.T) {
+	s := NewStreamUsage(StyleOpenAI)
+	s.Write([]byte("data: {\"id\":\"c1\",\"model\":\"m\",\"choices\":[{\"delta\":{\"content\":\"{\\\"usage\\\":{\\\"prompt_tokens\\\":999}}\"}}]}\n\n"))
+	s.Write([]byte("data: {\"id\":\"c1\",\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":1}}\n\n"))
+	u := s.Result()
+	if u == nil || *u.Input != 5 {
+		t.Fatalf("content leaked into usage: %+v", u)
 	}
 }

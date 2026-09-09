@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"net"
 	"regexp"
 	"strings"
 )
@@ -63,7 +64,11 @@ type Route struct {
 var genericRe = regexp.MustCompile(`^/([a-z0-9.-]+)(?::(\d+))?(/.*)?$`)
 
 func isLoopback(host string) bool {
-	return host == "localhost" || host == "::1" || strings.HasPrefix(host, "127.")
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 // Resolve maps a request path to a route. `/proxy/<host>[:port]/...`
