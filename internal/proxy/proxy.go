@@ -409,6 +409,7 @@ func (h *Handler) record(rt Route, started time.Time, res *http.Response, u *Usa
 	e.RequestedModel = *requested
 	if u != nil {
 		e.InputTokens, e.CachedTokens, e.CacheWriteTokens, e.OutputTokens, e.ReasoningTokens = u.Input, u.Cached, u.CacheWrite, u.Output, u.Reasoning
+		e.CacheWrite1hTokens = u.CacheWrite1h
 		e.ReasoningInOutput, e.CachedInInput = u.ReasoningInOutput, u.CachedInInput
 		e.ProviderRequestID = u.RequestID
 		e.ServiceTier = u.ServiceTier

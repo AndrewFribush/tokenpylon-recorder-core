@@ -12,6 +12,7 @@ import (
 type Usage struct {
 	Model, RequestID                             *string
 	Input, Cached, CacheWrite, Output, Reasoning *int64
+	CacheWrite1h                                 *int64 // Anthropic: cache_creation.ephemeral_1h_input_tokens
 	ReasoningInOutput                            *bool
 	CachedInInput                                *bool
 	CostUSD                                      *float64
@@ -39,6 +40,9 @@ func (u *Usage) merge(o *Usage) {
 	}
 	if o.CacheWrite != nil {
 		u.CacheWrite = o.CacheWrite
+	}
+	if o.CacheWrite1h != nil {
+		u.CacheWrite1h = o.CacheWrite1h
 	}
 	if o.Output != nil {
 		u.Output = o.Output
@@ -186,6 +190,9 @@ func Extract(style Style, j map[string]any) *Usage {
 		u.Input = num(m["input_tokens"])
 		u.Cached = num(m["cache_read_input_tokens"])
 		u.CacheWrite = num(m["cache_creation_input_tokens"])
+		if cc := obj(m["cache_creation"]); cc != nil {
+			u.CacheWrite1h = num(cc["ephemeral_1h_input_tokens"])
+		}
 		u.Output = num(m["output_tokens"])
 		if u.Input != nil {
 			u.CachedInInput = b(false)

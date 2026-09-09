@@ -52,13 +52,14 @@ type Event struct {
 	Batch       *bool   `json:"batch"`
 	ServiceTier *string `json:"service_tier"`
 
-	InputTokens       *int64 `json:"input_tokens"`       // uncached prompt tokens
-	CachedTokens      *int64 `json:"cached_tokens"`      // prompt tokens read from cache
-	CacheWriteTokens  *int64 `json:"cache_write_tokens"` // prompt tokens written to cache
-	OutputTokens      *int64 `json:"output_tokens"`
-	ReasoningTokens   *int64 `json:"reasoning_tokens"`
-	ReasoningInOutput *bool  `json:"reasoning_in_output"` // provider counts reasoning inside output_tokens
-	CachedInInput     *bool  `json:"cached_in_input"`     // provider's prompt count included cached tokens before we split
+	InputTokens        *int64 `json:"input_tokens"`                    // uncached prompt tokens
+	CachedTokens       *int64 `json:"cached_tokens"`                   // prompt tokens read from cache
+	CacheWriteTokens   *int64 `json:"cache_write_tokens"`              // prompt tokens written to cache (every TTL)
+	CacheWrite1hTokens *int64 `json:"cache_write_1h_tokens,omitempty"` // the part written at the one-hour TTL (Anthropic), nil when not reported
+	OutputTokens       *int64 `json:"output_tokens"`
+	ReasoningTokens    *int64 `json:"reasoning_tokens"`
+	ReasoningInOutput  *bool  `json:"reasoning_in_output"` // provider counts reasoning inside output_tokens
+	CachedInInput      *bool  `json:"cached_in_input"`     // provider's prompt count included cached tokens before we split
 
 	CostUSD     *float64 `json:"cost_usd"`
 	AmountBasis string   `json:"amount_basis"` // provider_reported | catalog_calculated | inferred | none
@@ -179,7 +180,7 @@ func (e *Event) Validate() error {
 	if e.ServiceTier != nil && !idRe.MatchString(*e.ServiceTier) {
 		e.ServiceTier = nil
 	}
-	for _, p := range []*int64{e.InputTokens, e.CachedTokens, e.CacheWriteTokens, e.OutputTokens, e.ReasoningTokens} {
+	for _, p := range []*int64{e.InputTokens, e.CachedTokens, e.CacheWriteTokens, e.CacheWrite1hTokens, e.OutputTokens, e.ReasoningTokens} {
 		if p != nil && *p < 0 {
 			return errf("tokens")
 		}

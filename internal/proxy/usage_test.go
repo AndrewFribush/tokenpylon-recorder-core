@@ -28,11 +28,11 @@ func TestExtractOpenRouterCost(t *testing.T) {
 
 func TestAnthropicStream(t *testing.T) {
 	s := NewStreamUsage(StyleAnthropic)
-	s.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":25,\"cache_creation_input_tokens\":100,\"cache_read_input_tokens\":2000,\"output_tokens\":1}}}\n\n"))
+	s.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":25,\"cache_creation_input_tokens\":100,\"cache_creation\":{\"ephemeral_5m_input_tokens\":30,\"ephemeral_1h_input_tokens\":70},\"cache_read_input_tokens\":2000,\"output_tokens\":1}}}\n\n"))
 	s.Write([]byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"hi\"}}\n\n"))
 	s.Write([]byte("event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":42}}\n\n"))
 	u := s.Result()
-	if u == nil || *u.Input != 25 || *u.CacheWrite != 100 || *u.Cached != 2000 || *u.Output != 42 || *u.RequestID != "msg_1" || *u.Model != "claude-opus-5" {
+	if u == nil || *u.Input != 25 || *u.CacheWrite != 100 || *u.CacheWrite1h != 70 || *u.Cached != 2000 || *u.Output != 42 || *u.RequestID != "msg_1" || *u.Model != "claude-opus-5" {
 		t.Fatalf("bad: %+v", u)
 	}
 }
