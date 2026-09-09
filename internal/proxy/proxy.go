@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -47,11 +48,47 @@ type Options struct {
 
 type Handler struct {
 	opts      Options
-	transport *http.Transport
-	insecure  *http.Transport
+	transport *http.Transport // named upstreams
+	generic   *http.Transport // /proxy/<host>: resolved addresses are checked before dialing
+	insecure  *http.Transport // /proxy/<loopback>: plain HTTP
 	mu        sync.Mutex
 	inflight  int
 	total     int64
+	sinks     sync.WaitGroup
+}
+
+// checkedDial resolves the name itself and refuses private, loopback,
+// link-local and unspecified addresses unless allowLoopback is set, then
+// dials the vetted address directly: a DNS name cannot smuggle the
+// request to something the host-literal check would have refused.
+func checkedDial(allowLoopback bool) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
+		}
+		var last error
+		for _, ip := range ips {
+			if !allowLoopback && (ip.IP.IsLoopback() || ip.IP.IsPrivate() || ip.IP.IsLinkLocalUnicast() || ip.IP.IsLinkLocalMulticast() || ip.IP.IsUnspecified() || ip.IP.IsMulticast()) {
+				last = fmt.Errorf("refusing to connect to a private address for %s", host)
+				continue
+			}
+			c, err := d.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
+			if err == nil {
+				return c, nil
+			}
+			last = err
+		}
+		if last == nil {
+			last = fmt.Errorf("no address for %s", host)
+		}
+		return nil, last
+	}
 }
 
 func New(opts Options) *Handler {
@@ -69,8 +106,14 @@ func New(opts Options) *Handler {
 	}
 	ins := t.Clone()
 	ins.Proxy = nil
-	return &Handler{opts: opts, transport: t, insecure: ins}
+	gen := t.Clone()
+	gen.Proxy = nil // an environment proxy would bypass the address check
+	gen.DialContext = checkedDial(opts.AllowLoopback)
+	return &Handler{opts: opts, transport: t, generic: gen, insecure: ins}
 }
+
+// Wait blocks until every detached recording goroutine has delivered.
+func (h *Handler) Wait() { h.sinks.Wait() }
 
 func (h *Handler) Inflight() int { h.mu.Lock(); defer h.mu.Unlock(); return h.inflight }
 func (h *Handler) Total() int64  { h.mu.Lock(); defer h.mu.Unlock(); return h.total }
@@ -196,6 +239,8 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 	tr := h.transport
 	if rt.Upstream.Insecure {
 		tr = h.insecure
+	} else if rt.Generic {
+		tr = h.generic
 	}
 	res, err := tr.RoundTrip(upReq)
 	if err != nil {
@@ -224,7 +269,8 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 	// identity, or not JSON/SSE at all) yields no usage: unknown, never a
 	// number scraped out of compressed bytes.
 	enc := strings.ToLower(res.Header.Get("Content-Encoding"))
-	readable := enc == "" || enc == "identity"
+	ctype := strings.ToLower(res.Header.Get("Content-Type"))
+	readable := (enc == "" || enc == "identity") && (isStream || strings.HasPrefix(ctype, "application/json"))
 	// Recording runs off the data path: chunks are copied into a bounded
 	// queue and parsed by their own goroutine; a full queue drops for
 	// recording only, never for the client.
@@ -270,12 +316,16 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 			break
 		}
 	}
-	rec.Close()
+	// Draining is bounded: the client already has every byte. A dropped
+	// chunk or a slow parser means unknown usage, never a wrong number.
+	lost := !rec.Close(2 * time.Second)
 	var u *Usage
-	if su != nil {
-		u = su.Result()
-	} else if bu != nil {
-		u = bu.Result()
+	if !lost {
+		if su != nil {
+			u = su.Result()
+		} else if bu != nil {
+			u = bu.Result()
+		}
 	}
 	var ttft *time.Time
 	if !firstByte.IsZero() {
@@ -396,7 +446,8 @@ func (h *Handler) record(rt Route, started time.Time, res *http.Response, u *Usa
 		return
 	}
 	if h.opts.Sink != nil {
-		go h.opts.Sink(e)
+		h.sinks.Add(1)
+		go func() { defer h.sinks.Done(); h.opts.Sink(e) }()
 	}
 }
 
@@ -407,14 +458,17 @@ func Serve(ctx context.Context, addr string, mux http.Handler) error {
 	if err != nil {
 		return err
 	}
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		<-ctx.Done()
-		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(c)
+		_ = srv.Shutdown(c) // returns after in-flight handlers finish (or the timeout)
 	}()
 	err = srv.Serve(ln)
 	if err == http.ErrServerClosed {
+		<-done // join the shutdown so callers can tear down after handlers
 		return nil
 	}
 	return err

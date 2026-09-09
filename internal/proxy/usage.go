@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Usage is what an adapter extracts from a response. Nil = not reported.
@@ -316,14 +317,15 @@ func (s *StreamUsage) event(e []byte) {
 		return
 	}
 	// The first event carries id and model; later ones matter only when
-	// they carry usage.
+	// they carry usage. Either way the event is read structurally: only
+	// approved paths are materialised, never content.
 	if !s.first && !interesting(data) {
 		return
 	}
 	s.first = false
-	if j := decode(data); j != nil {
-		s.acc.merge(Extract(s.style, j))
-	}
+	sc := newScan(s.style)
+	sc.Write(data)
+	s.acc.merge(sc.Result())
 }
 
 func (s *StreamUsage) Result() *Usage {
@@ -337,134 +339,201 @@ func (s *StreamUsage) Result() *Usage {
 	return &s.acc
 }
 
-// BodyUsage extracts usage from a non-streaming body of any size without
-// holding it: the head (first 16 KB) yields the top-level id/model/provider;
-// the balanced object after the LAST "usage" / "usageMetadata" key is
-// captured as it passes (bounded), so a 10 MB embeddings response still
-// yields its counts.
-type BodyUsage struct {
+// scan is a structural, streaming JSON reader that materialises only
+// approved paths: the top-level strings id/model/provider/service_tier/
+// responseId/modelVersion (and the same under "response"/"message"), and
+// the object under usage / usageMetadata at the top level or under
+// response/message. Everything else, message content included, is walked
+// byte by byte and dropped. Works on a body of any size fed in chunks.
+type scan struct {
 	style Style
-	head  []byte
-	key   []byte
+	// tokenizer state
+	inStr, esc bool
+	str        []byte // current string being read (bounded)
+	strIsKey   bool
+	depth      int
+	keys       []string // key at each depth (index = depth-1)
+	expectVal  bool     // just saw ':' at the current depth
 	// capture state
-	buf     []byte // last complete usage object
-	cur     []byte // object being captured
-	depth   int
-	inStr   bool
-	esc     bool
-	matchAt int // progress matching the key
-	seek    bool
-	total   int
+	capDepth int // depth at which the captured object started (0 = none)
+	cap      []byte
+	// results
+	top      map[string]string // top-level strings
+	nested   map[string]string // strings under response/message
+	usage    []byte            // last captured usage object
+	valid    bool              // first non-space byte was '{'
+	started  bool
+	overflow bool
+	objs     []bool // container stack: true = object, false = array
 }
 
-const headBytes = 16 << 10
-const maxUsageObj = 64 << 10
+const maxScanStr = 4 << 10
+const maxScanObj = 64 << 10
 
-func NewBodyUsage(style Style) *BodyUsage {
-	k := []byte(`"usage"`)
-	if style == StyleGoogle {
-		k = []byte(`"usageMetadata"`)
-	}
-	return &BodyUsage{style: style, key: k}
+func newScan(style Style) *scan {
+	return &scan{style: style, top: map[string]string{}, nested: map[string]string{}}
 }
 
-func (bu *BodyUsage) Write(p []byte) {
-	if len(bu.head) < headBytes {
-		bu.head = append(bu.head, p[:min(len(p), headBytes-len(bu.head))]...)
+var wantStrings = map[string]bool{"id": true, "model": true, "provider": true, "service_tier": true, "responseId": true, "modelVersion": true}
+
+func (sc *scan) usageKey() string {
+	if sc.style == StyleGoogle {
+		return "usageMetadata"
 	}
+	return "usage"
+}
+
+func (sc *scan) parentIsEnvelope() bool {
+	return sc.depth == 2 && (sc.keys[0] == "response" || sc.keys[0] == "message")
+}
+
+func (sc *scan) setKey(k string) {
+	for len(sc.keys) < sc.depth {
+		sc.keys = append(sc.keys, "")
+	}
+	sc.keys[sc.depth-1] = k
+}
+
+func (sc *scan) Write(p []byte) {
 	for _, c := range p {
-		if bu.depth > 0 { // capturing
-			bu.cur = append(bu.cur, c)
-			if len(bu.cur) > maxUsageObj {
-				bu.depth, bu.cur = 0, nil
+		if !sc.started {
+			if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
 				continue
 			}
-			if bu.inStr {
-				if bu.esc {
-					bu.esc = false
-				} else if c == '\\' {
-					bu.esc = true
-				} else if c == '"' {
-					bu.inStr = false
-				}
+			sc.started = true
+			sc.valid = c == '{'
+		}
+		if !sc.valid {
+			return
+		}
+		if sc.capDepth > 0 {
+			sc.cap = append(sc.cap, c)
+			if len(sc.cap) > maxScanObj {
+				sc.overflow = true
+			}
+		}
+		if sc.inStr {
+			if len(sc.str) < maxScanStr {
+				sc.str = append(sc.str, c)
+			}
+			if sc.esc {
+				sc.esc = false
 				continue
 			}
-			switch c {
-			case '"':
-				bu.inStr = true
-			case '{':
-				bu.depth++
-			case '}':
-				bu.depth--
-				if bu.depth == 0 {
-					bu.buf, bu.cur = bu.cur, nil
+			if c == '\\' {
+				sc.esc = true
+				continue
+			}
+			if c == '"' {
+				sc.inStr = false
+				raw := sc.str[:len(sc.str)-1]
+				if sc.strIsKey {
+					var k string
+					if json.Unmarshal(append(append([]byte{'"'}, raw...), '"'), &k) == nil {
+						sc.setKey(k)
+					} else {
+						sc.setKey("")
+					}
+				} else if sc.expectVal && sc.capDepth == 0 && len(raw) < maxScanStr {
+					k := sc.keys[sc.depth-1]
+					if wantStrings[k] {
+						var v string
+						if json.Unmarshal(append(append([]byte{'"'}, raw...), '"'), &v) == nil {
+							if sc.depth == 1 {
+								sc.top[k] = v
+							} else if sc.parentIsEnvelope() {
+								sc.nested[k] = v
+							}
+						}
+					}
 				}
+				sc.expectVal = false
 			}
 			continue
 		}
-		if bu.seek { // key matched; waiting for ':' then '{'
-			if c == '{' {
-				bu.seek, bu.depth, bu.cur = false, 1, []byte{'{'}
-			} else if c != ':' && c != ' ' && c != '\n' && c != '\r' && c != '\t' {
-				bu.seek = false
+		switch c {
+		case '"':
+			sc.inStr, sc.esc = true, false
+			sc.str = sc.str[:0]
+			sc.strIsKey = !sc.expectVal && sc.depth > 0 && sc.capDepth == 0 && sc.inObject()
+		case '{':
+			sc.depth++
+			sc.setKey("")
+			if sc.capDepth == 0 && sc.expectVal && sc.depth >= 2 {
+				parentKey := sc.keys[sc.depth-2]
+				if parentKey == sc.usageKey() && (sc.depth == 2 || (sc.depth == 3 && (sc.keys[0] == "response" || sc.keys[0] == "message"))) {
+					sc.capDepth = sc.depth
+					sc.cap = append(sc.cap[:0], '{')
+					sc.overflow = false
+				}
 			}
-			continue
-		}
-		if c == bu.key[bu.matchAt] {
-			bu.matchAt++
-			if bu.matchAt == len(bu.key) {
-				bu.matchAt, bu.seek = 0, true
+			sc.expectVal = false
+			sc.objs = append(sc.objs, true)
+		case '[':
+			sc.depth++
+			sc.setKey("")
+			sc.expectVal = false
+			sc.objs = append(sc.objs, false)
+		case '}', ']':
+			if sc.capDepth == sc.depth && c == '}' {
+				if !sc.overflow {
+					sc.usage = append([]byte(nil), sc.cap...)
+				}
+				sc.capDepth = 0
 			}
-		} else if c == bu.key[0] {
-			bu.matchAt = 1
-		} else {
-			bu.matchAt = 0
+			if sc.depth > 0 {
+				sc.depth--
+			}
+			if len(sc.objs) > 0 {
+				sc.objs = sc.objs[:len(sc.objs)-1]
+			}
+			sc.expectVal = false
+		case ':':
+			if sc.inObject() {
+				sc.expectVal = true
+			}
+		case ',':
+			sc.expectVal = false
 		}
 	}
 }
 
-func (bu *BodyUsage) Result() *Usage {
-	u := &Usage{}
-	// Only a JSON object is scanned; anything else (HTML error page, binary)
-	// yields nothing rather than a lucky match.
-	if len(bytes.TrimLeft(bu.head, " \t\r\n")) == 0 || bytes.TrimLeft(bu.head, " \t\r\n")[0] != '{' {
+func (sc *scan) inObject() bool { return len(sc.objs) > 0 && sc.objs[len(sc.objs)-1] }
+
+// Result assembles a Usage from what was approved.
+func (sc *scan) Result() *Usage {
+	if !sc.valid {
 		return nil
 	}
-	// Whole-body parse when the body was small enough to be in the head.
-	if len(bu.head) < headBytes {
-		if w := FromBody(bu.style, bu.head); w != nil {
-			return w
+	env := map[string]any{}
+	for k, v := range sc.top {
+		env[k] = v
+	}
+	if len(sc.nested) > 0 {
+		n := map[string]any{}
+		for k, v := range sc.nested {
+			n[k] = v
+		}
+		env["response"] = n
+	}
+	if sc.usage != nil {
+		if o := decode(sc.usage); o != nil {
+			env[sc.usageKey()] = o
 		}
 	}
-	for _, k := range []string{"id", "model", "provider", "responseId", "modelVersion", "service_tier"} {
-		if v := TopLevelString(bu.head, k); v != nil {
-			switch k {
-			case "id", "responseId":
-				if u.RequestID == nil {
-					u.RequestID = v
-				}
-			case "model", "modelVersion":
-				if u.Model == nil {
-					u.Model = v
-				}
-			case "provider":
-				s := strings.ToLower(*v)
-				u.ServedHost = &s
-			case "service_tier":
-				u.ServiceTier = v
-			}
-		}
-	}
-	if bu.buf != nil {
-		if o := decode(bu.buf); o != nil {
-			u.merge(Extract(bu.style, map[string]any{string(bytes.Trim(bu.key, `"`)): o}))
-		}
-	}
-	if !u.any && u.Model == nil && u.RequestID == nil {
+	u := Extract(sc.style, env)
+	if u == nil || (!u.any && u.Model == nil && u.RequestID == nil) {
 		return nil
 	}
 	return u
 }
+
+// BodyUsage: usage from a non-streaming JSON body of any size, structurally.
+type BodyUsage struct{ sc *scan }
+
+func NewBodyUsage(style Style) *BodyUsage { return &BodyUsage{sc: newScan(style)} }
+func (bu *BodyUsage) Write(p []byte)      { bu.sc.Write(p) }
+func (bu *BodyUsage) Result() *Usage      { return bu.sc.Result() }
 
 // TopLevelModel: the top-level "model" of a JSON request body prefix.
 func TopLevelModel(head []byte) *string { return TopLevelString(head, "model") }
@@ -572,7 +641,7 @@ type recorder struct {
 }
 
 func newRecorder(sink func([]byte)) *recorder {
-	r := &recorder{ch: make(chan []byte, 256), done: make(chan struct{})}
+	r := &recorder{ch: make(chan []byte, 1024), done: make(chan struct{})}
 	go func() {
 		defer close(r.done)
 		for c := range r.ch {
@@ -586,6 +655,9 @@ func newRecorder(sink func([]byte)) *recorder {
 }
 
 func (r *recorder) Write(p []byte) {
+	if r.drop {
+		return // once a chunk is lost the rest is meaningless for parsing
+	}
 	c := make([]byte, len(p))
 	copy(c, p)
 	select {
@@ -595,5 +667,14 @@ func (r *recorder) Write(p []byte) {
 	}
 }
 
-// Close drains and waits (bounded by the caller).
-func (r *recorder) Close() { r.once.Do(func() { close(r.ch) }); <-r.done }
+// Close drains and waits up to d. Returns false when recording is not
+// reliable: a chunk was dropped, or the parser did not finish in time.
+func (r *recorder) Close(d time.Duration) bool {
+	r.once.Do(func() { close(r.ch) })
+	select {
+	case <-r.done:
+		return !r.drop
+	case <-time.After(d):
+		return false
+	}
+}

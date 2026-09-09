@@ -251,3 +251,68 @@ func TestOddRequests(t *testing.T) {
 	}
 	_ = event.SchemaVersion
 }
+
+func TestStructuralExtractionIgnoresNestedUsage(t *testing.T) {
+	// A usage-shaped object inside content (tool output echoing a JSON
+	// document) must not become telemetry; only the top-level one counts.
+	body := `{"id":"r1","model":"m","choices":[{"message":{"content":"{\"usage\":{\"prompt_tokens\":999,\"completion_tokens\":999}}","usage":{"prompt_tokens":555}}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}`
+	bu := NewBodyUsage(StyleOpenAI)
+	bu.Write([]byte(body))
+	u := bu.Result()
+	if u == nil || *u.Input != 7 || *u.Output != 2 || *u.RequestID != "r1" {
+		t.Fatalf("bad: %+v", u)
+	}
+	// nested "model" inside choices must not override the top-level one
+	bu = NewBodyUsage(StyleOpenAI)
+	bu.Write([]byte(`{"choices":[{"model":"inner","id":"inner"}],"model":"outer","id":"outer","usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+	u = bu.Result()
+	if *u.Model != "outer" || *u.RequestID != "outer" {
+		t.Fatalf("nested strings leaked: %+v", u)
+	}
+	// non-object bodies yield nothing
+	bu = NewBodyUsage(StyleOpenAI)
+	bu.Write([]byte(`<html>"usage":{"prompt_tokens":3}</html>`))
+	if bu.Result() != nil {
+		t.Fatal("non-JSON body produced usage")
+	}
+}
+
+func TestResponsesStreamCompletedNested(t *testing.T) {
+	s := NewStreamUsage(StyleOpenAI)
+	s.Write([]byte("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_9\",\"model\":\"gpt-5\"}}\n\n"))
+	s.Write([]byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"usage\\\":{\\\"input_tokens\\\":99}}\"}\n\n"))
+	s.Write([]byte("event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_9\",\"model\":\"gpt-5\",\"output\":[{\"content\":[{\"text\":\"{\\\"usage\\\":{\\\"input_tokens\\\":77}}\"}]}],\"usage\":{\"input_tokens\":12,\"input_tokens_details\":{\"cached_tokens\":2},\"output_tokens\":3}}}\n\n"))
+	u := s.Result()
+	if u == nil || *u.Input != 10 || *u.Cached != 2 || *u.Output != 3 || *u.RequestID != "resp_9" {
+		t.Fatalf("bad: %+v", u)
+	}
+}
+
+func TestNonJSONContentTypeYieldsNoUsage(t *testing.T) {
+	up, px, events, mu := withUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, `{"id":"h1","model":"m","usage":{"prompt_tokens":3,"completion_tokens":1}}`)
+	})
+	u, _ := url.Parse(up.URL)
+	srv := httptest.NewServer(px)
+	defer srv.Close()
+	res, _ := http.Post(srv.URL+"/proxy/"+u.Host+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"m"}`))
+	_, _ = io.ReadAll(res.Body)
+	e := wait(t, mu, events)
+	if e.InputTokens != nil || e.ProviderRequestID != nil {
+		t.Fatalf("usage taken from a non-JSON content type: %+v", e)
+	}
+}
+
+func TestCheckedDialRefusesPrivateNames(t *testing.T) {
+	d := checkedDial(false)
+	if _, err := d(context.Background(), "tcp", "localhost:1"); err == nil || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("localhost not refused: %v", err)
+	}
+	if _, err := d(context.Background(), "tcp", "127.0.0.1:1"); err == nil || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("loopback literal not refused: %v", err)
+	}
+	if _, err := d(context.Background(), "tcp", "10.1.2.3:1"); err == nil || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("private literal not refused: %v", err)
+	}
+}

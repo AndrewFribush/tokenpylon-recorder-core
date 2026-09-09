@@ -59,6 +59,7 @@ type Route struct {
 	Upstream Upstream
 	Provider string // billing provider key
 	Rest     string // path after the prefix
+	Generic  bool   // /proxy/<host>: dialed through the address-checked transport
 }
 
 var genericRe = regexp.MustCompile(`^/([A-Za-z0-9.:\[\]-]+?)(?::(\d+))?(/.*)?$`)
@@ -126,7 +127,7 @@ func Resolve(path string, allowLoopback bool) (Route, bool) {
 		if m[3] != "" {
 			r = m[3]
 		}
-		return Route{Upstream: Upstream{Host: host, Port: port, Insecure: loop, Style: StyleOpenAI, Direct: true}, Provider: provider, Rest: r}, true
+		return Route{Upstream: Upstream{Host: host, Port: port, Insecure: loop, Style: StyleOpenAI, Direct: true}, Provider: provider, Rest: r, Generic: true}, true
 	}
 	u, ok := Upstreams[head]
 	if !ok {
