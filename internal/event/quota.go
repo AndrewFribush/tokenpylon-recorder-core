@@ -8,8 +8,10 @@ type Quota struct {
 	Harness    string  `json:"harness"` // claude-code | codex
 	Window     string  `json:"window"`  // 5h | 7d | overage | <N>m
 	UsedPct    float64 `json:"used_pct"`
-	ResetsAt   string  `json:"resets_at"` // RFC3339, "" when unknown
-	Status     string  `json:"status"`    // allowed | rejected | ""
-	Plan       string  `json:"plan"`      // codex: plus | pro | ...
+	ResetsAt   string  `json:"resets_at"`       // RFC3339, "" when unknown
+	Status     string  `json:"status"`          // allowed | rejected | ""
+	Plan       string  `json:"plan"`            // codex: plus | pro | ...
+	Scope      string  `json:"scope,omitempty"` // the model the bucket was last seen on; a bucket that only appears for some models is about them
+	Note       string  `json:"note,omitempty"`  // e.g. "surpassed threshold"
 	ObservedAt string  `json:"observed_at"`
 }

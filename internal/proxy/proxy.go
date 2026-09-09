@@ -516,7 +516,7 @@ func (h *Handler) record(rt Route, started time.Time, res *http.Response, u *Usa
 			e.ServedHost, e.HostEvidence = safeHost.ReplaceAllString(strings.ToLower(v), "_"), "response_header"
 		}
 		if h.opts.Quota != nil {
-			for _, q := range QuotaFromHeaders(res.Header, time.Now()) {
+			for _, q := range QuotaFromHeaders(res.Header, e.RequestedModel, time.Now()) {
 				h.opts.Quota(q)
 			}
 		}
