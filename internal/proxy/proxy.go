@@ -43,6 +43,7 @@ type Options struct {
 	AllowPrivate bool // /proxy/127.0.0.1:port upstreams (LiteLLM, Ollama)
 	AnyHost      bool // skip the loopback Host check (container sidecar bound to 0.0.0.0)
 	Sink         Sink
+	Quota        func(event.Quota) // rate-limit meters seen on responses (Anthropic); optional
 	Log          func(string)
 }
 
@@ -429,6 +430,11 @@ func (h *Handler) record(rt Route, started time.Time, res *http.Response, u *Usa
 		}
 		if v := res.Header.Get("X-Openrouter-Provider"); v != "" {
 			e.ServedHost, e.HostEvidence = safeHost.ReplaceAllString(strings.ToLower(v), "_"), "response_header"
+		}
+		if h.opts.Quota != nil {
+			for _, q := range QuotaFromHeaders(res.Header, time.Now()) {
+				h.opts.Quota(q)
+			}
 		}
 	}
 	if e.HostEvidence == "none" && u != nil && u.ServedHost != nil {
