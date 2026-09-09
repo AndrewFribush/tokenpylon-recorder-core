@@ -98,10 +98,10 @@ func TestResolve(t *testing.T) {
 		t.Fatalf("bad: %+v", r)
 	}
 	if _, ok := Resolve("/proxy/127.0.0.1:4000/v1/chat/completions", false); ok {
-		t.Fatal("loopback allowed by default")
+		t.Fatal("loopback allowed under --restrict-private")
 	}
 	r, ok = Resolve("/proxy/127.0.0.1:4000/v1/chat/completions", true)
-	if !ok || !r.Upstream.Insecure || r.Upstream.Port != 4000 {
+	if !ok || !r.Upstream.Insecure || r.Upstream.Port != 4000 || r.Provider != "local" {
 		t.Fatalf("bad: %+v", r)
 	}
 	r, ok = Resolve("/proxy/api.example-host.com/v1/chat/completions", false)

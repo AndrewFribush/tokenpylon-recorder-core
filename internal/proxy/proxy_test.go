@@ -23,7 +23,7 @@ func withUpstream(t *testing.T, h http.HandlerFunc) (*httptest.Server, *Handler,
 	t.Cleanup(up.Close)
 	var mu sync.Mutex
 	var got []*event.Event
-	px := New(Options{InstallID: "r_0123456789abcdef", AllowLoopback: true, Sink: func(e *event.Event) { mu.Lock(); got = append(got, e); mu.Unlock() }})
+	px := New(Options{InstallID: "r_0123456789abcdef", AllowPrivate: true, Sink: func(e *event.Event) { mu.Lock(); got = append(got, e); mu.Unlock() }})
 	return up, px, &got, &mu
 }
 

@@ -66,20 +66,22 @@ var genericRe = regexp.MustCompile(`^/([A-Za-z0-9.:\[\]-]+?)(?::(\d+))?(/.*)?$`)
 var hostnameRe = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // validHost: a real hostname or IP literal. ".." and friends never reach a
-// dialer; private and link-local IP literals only with allowLoopback (the
-// same switch that admits LiteLLM/Ollama on this machine).
-func validHost(host string, allowLoopback bool) (loop bool, ok bool) {
+// dialer. Loopback, private and link-local targets (Ollama, LM Studio, a
+// LiteLLM on the LAN) are allowed unless the collector was started with
+// --restrict-private: only local processes can reach this listener, and
+// they can reach those addresses directly anyway.
+func validHost(host string, allowPrivate bool) (loop bool, ok bool) {
 	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
 		if ip.IsLoopback() {
-			return true, allowLoopback
+			return true, allowPrivate
 		}
 		if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
-			return false, allowLoopback
+			return false, allowPrivate
 		}
 		return false, true
 	}
 	if host == "localhost" {
-		return true, allowLoopback
+		return true, allowPrivate
 	}
 	return false, hostnameRe.MatchString(host)
 }
@@ -94,8 +96,8 @@ func isLoopback(host string) bool {
 
 // Resolve maps a request path to a route. `/proxy/<host>[:port]/...`
 // reaches anything OpenAI-shaped over HTTPS; a loopback host is plain HTTP
-// and only allowed when allowLoopback is set (LiteLLM/Ollama in front).
-func Resolve(path string, allowLoopback bool) (Route, bool) {
+// and only allowed when allowPrivate is set (LiteLLM/Ollama in front).
+func Resolve(path string, allowPrivate bool) (Route, bool) {
 	path = strings.TrimPrefix(path, "/")
 	head, rest, _ := strings.Cut(path, "/")
 	rest = "/" + rest
@@ -114,7 +116,7 @@ func Resolve(path string, allowLoopback bool) (Route, bool) {
 				return Route{}, false
 			}
 		}
-		loop, ok := validHost(host, allowLoopback)
+		loop, ok := validHost(host, allowPrivate)
 		if !ok {
 			return Route{}, false
 		}
@@ -123,6 +125,9 @@ func Resolve(path string, allowLoopback bool) (Route, bool) {
 			provider = provider[:i]
 		}
 		provider = regexp.MustCompile(`[^a-z0-9_.-]`).ReplaceAllString(provider, "_")
+		if loop {
+			provider = "local" // Ollama, LM Studio, a LiteLLM on this machine: not a billing provider
+		}
 		r := "/"
 		if m[3] != "" {
 			r = m[3]

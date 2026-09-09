@@ -39,11 +39,11 @@ var hopByHop = map[string]bool{"connection": true, "keep-alive": true, "proxy-au
 type Sink func(*event.Event)
 
 type Options struct {
-	InstallID     string
-	AllowLoopback bool // /proxy/127.0.0.1:port upstreams (LiteLLM, Ollama)
-	AnyHost       bool // skip the loopback Host check (container sidecar bound to 0.0.0.0)
-	Sink          Sink
-	Log           func(string)
+	InstallID    string
+	AllowPrivate bool // /proxy/127.0.0.1:port upstreams (LiteLLM, Ollama)
+	AnyHost      bool // skip the loopback Host check (container sidecar bound to 0.0.0.0)
+	Sink         Sink
+	Log          func(string)
 }
 
 type Handler struct {
@@ -58,10 +58,10 @@ type Handler struct {
 }
 
 // checkedDial resolves the name itself and refuses private, loopback,
-// link-local and unspecified addresses unless allowLoopback is set, then
+// link-local and unspecified addresses unless allowPrivate is set, then
 // dials the vetted address directly: a DNS name cannot smuggle the
 // request to something the host-literal check would have refused.
-func checkedDial(allowLoopback bool) func(ctx context.Context, network, addr string) (net.Conn, error) {
+func checkedDial(allowPrivate bool) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	d := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)
@@ -74,7 +74,7 @@ func checkedDial(allowLoopback bool) func(ctx context.Context, network, addr str
 		}
 		var last error
 		for _, ip := range ips {
-			if !allowLoopback && (ip.IP.IsLoopback() || ip.IP.IsPrivate() || ip.IP.IsLinkLocalUnicast() || ip.IP.IsLinkLocalMulticast() || ip.IP.IsUnspecified() || ip.IP.IsMulticast()) {
+			if !allowPrivate && (ip.IP.IsLoopback() || ip.IP.IsPrivate() || ip.IP.IsLinkLocalUnicast() || ip.IP.IsLinkLocalMulticast() || ip.IP.IsUnspecified() || ip.IP.IsMulticast()) {
 				last = fmt.Errorf("refusing to connect to a private address for %s", host)
 				continue
 			}
@@ -108,7 +108,7 @@ func New(opts Options) *Handler {
 	ins.Proxy = nil
 	gen := t.Clone()
 	gen.Proxy = nil // an environment proxy would bypass the address check
-	gen.DialContext = checkedDial(opts.AllowLoopback)
+	gen.DialContext = checkedDial(opts.AllowPrivate)
 	return &Handler{opts: opts, transport: t, generic: gen, insecure: ins}
 }
 
@@ -143,7 +143,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := r.URL.Path
-	route, ok := Resolve(path, h.opts.AllowLoopback)
+	route, ok := Resolve(path, h.opts.AllowPrivate)
 	if !ok {
 		names := make([]string, 0, len(Upstreams))
 		for k := range Upstreams {
