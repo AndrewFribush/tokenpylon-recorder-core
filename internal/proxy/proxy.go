@@ -31,6 +31,16 @@ const (
 	callIDHeader   = "X-Tokenpylon-Call-Id"
 	attemptHeader  = "X-Tokenpylon-Attempt"
 	gatewayHeader  = "X-Tokenpylon-Gateway"
+	// Optional tags any client can send so its calls group on the usage
+	// page like a harness's: which session, which agent, which project,
+	// and what to call the harness. Stripped before forwarding like every
+	// X-Tokenpylon-* header. Without them the client's User-Agent names
+	// the harness and calls less than 15 minutes apart form a session.
+	sessionHeader = "X-Tokenpylon-Session"
+	agentHeader   = "X-Tokenpylon-Agent"
+	projectHeader = "X-Tokenpylon-Project"
+	harnessHeader = "X-Tokenpylon-Harness"
+	sessionIdle   = 15 * time.Minute
 )
 
 var hopByHop = map[string]bool{"connection": true, "keep-alive": true, "proxy-authenticate": true, "proxy-authorization": true, "te": true, "trailer": true, "trailers": true, "transfer-encoding": true, "upgrade": true, "host": true}
@@ -43,8 +53,17 @@ type Options struct {
 	AllowPrivate bool // /proxy/127.0.0.1:port upstreams (LiteLLM, Ollama)
 	AnyHost      bool // skip the loopback Host check (container sidecar bound to 0.0.0.0)
 	Sink         Sink
-	Quota        func(event.Quota) // rate-limit meters seen on responses (Anthropic); optional
+	Quota        func(event.Quota)   // rate-limit meters seen on responses (Anthropic); optional
+	Context      func(event.Context) // per-call session, agent and project tags; optional
 	Log          func(string)
+}
+
+// clientTag is what a request says about who is calling.
+type clientTag struct{ Harness, Session, Agent, Project string }
+
+type inferred struct {
+	id   string
+	last time.Time
 }
 
 type Handler struct {
@@ -56,6 +75,70 @@ type Handler struct {
 	inflight  int
 	total     int64
 	sinks     sync.WaitGroup
+	sessMu    sync.Mutex
+	sessions  map[string]*inferred // harness|user-agent -> the session inferred for it
+}
+
+var safeTag = regexp.MustCompile(`[^A-Za-z0-9._:/+@-]`)
+
+func cleanTag(v string, n int) string {
+	v = safeTag.ReplaceAllString(strings.TrimSpace(v), "_")
+	if len(v) > n {
+		v = v[:n]
+	}
+	return v
+}
+
+// harnessFromUA takes the product token of a User-Agent: "claude-cli/2.1
+// (external, cli)" -> "claude-cli", "OpenAI/Python 1.2" -> "openai".
+func harnessFromUA(ua string) string {
+	ua = strings.TrimSpace(ua)
+	if ua == "" {
+		return "proxy"
+	}
+	tok := ua
+	if i := strings.IndexAny(tok, " /("); i > 0 {
+		tok = tok[:i]
+	}
+	tok = strings.ToLower(cleanTag(tok, 40))
+	if tok == "" {
+		return "proxy"
+	}
+	return tok
+}
+
+// tagOf reads the client's tags, inferring harness and session when they
+// are absent: the same harness and User-Agent calling again within
+// sessionIdle is the same session.
+func (h *Handler) tagOf(r *http.Request, now time.Time) clientTag {
+	t := clientTag{Harness: cleanTag(r.Header.Get(harnessHeader), 40), Session: cleanTag(r.Header.Get(sessionHeader), 120), Agent: cleanTag(r.Header.Get(agentHeader), 60), Project: cleanTag(r.Header.Get(projectHeader), 80)}
+	if t.Harness == "" {
+		t.Harness = harnessFromUA(r.Header.Get("User-Agent"))
+	}
+	if t.Agent == "" {
+		t.Agent = "main"
+	}
+	if t.Session == "" {
+		key := t.Harness + "|" + r.Header.Get("User-Agent")
+		h.sessMu.Lock()
+		if h.sessions == nil {
+			h.sessions = map[string]*inferred{}
+		}
+		cur := h.sessions[key]
+		if cur == nil || now.Sub(cur.last) > sessionIdle {
+			for k, v := range h.sessions { // forget clients idle for a day
+				if now.Sub(v.last) > 24*time.Hour {
+					delete(h.sessions, k)
+				}
+			}
+			cur = &inferred{id: t.Harness + "-" + now.UTC().Format("20060102T150405"), last: now}
+			h.sessions[key] = cur
+		}
+		cur.last = now
+		t.Session = cur.id
+		h.sessMu.Unlock()
+	}
+	return t
 }
 
 // checkedDial resolves the name itself and refuses private, loopback,
@@ -166,6 +249,7 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 	callID := r.Header.Get(callIDHeader)
 	attempt, _ := strconv.Atoi(r.Header.Get(attemptHeader))
 	gatewayHint := r.Header.Get(gatewayHeader)
+	tag := h.tagOf(r, started)
 
 	// Request headers: everything the client sent minus hop-by-hop and our
 	// own. Authorization passes through untouched and is never logged.
@@ -249,7 +333,7 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 		if !cancelled {
 			writeJSON(w, 502, map[string]any{"error": "upstream unreachable"})
 		}
-		h.record(rt, started, nil, nil, head, pr, nil, cancelled, false, op, mode, callID, attempt, gatewayHint, false)
+		h.record(rt, started, nil, nil, head, pr, nil, cancelled, false, op, mode, callID, attempt, gatewayHint, false, tag)
 		return
 	}
 	defer res.Body.Close()
@@ -332,7 +416,7 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 	if !firstByte.IsZero() {
 		ttft = &firstByte
 	}
-	h.record(rt, started, res, u, head, pr, ttft, cancelled, complete, op, mode, callID, attempt, gatewayHint, isStream)
+	h.record(rt, started, res, u, head, pr, ttft, cancelled, complete, op, mode, callID, attempt, gatewayHint, isStream, tag)
 }
 
 // peekReader keeps the first bytes of a request body while the transport
@@ -365,7 +449,7 @@ func (p *peekReader) Head() []byte {
 
 var safeHost = regexp.MustCompile(`[^a-z0-9_.-]`)
 
-func (h *Handler) record(rt Route, started time.Time, res *http.Response, u *Usage, head []byte, pr *peekReader, firstByte *time.Time, cancelled, complete bool, op, mode, callID string, attempt int, gatewayHint string, stream bool) {
+func (h *Handler) record(rt Route, started time.Time, res *http.Response, u *Usage, head []byte, pr *peekReader, firstByte *time.Time, cancelled, complete bool, op, mode, callID string, attempt int, gatewayHint string, stream bool, tag clientTag) {
 	defer func() { _ = recover() }()
 	if pr != nil && len(head) == 0 {
 		head = pr.Head()
@@ -455,6 +539,9 @@ func (h *Handler) record(rt Route, started time.Time, res *http.Response, u *Usa
 	if h.opts.Sink != nil {
 		h.sinks.Add(1)
 		go func() { defer h.sinks.Done(); h.opts.Sink(e) }()
+	}
+	if h.opts.Context != nil && tag.Session != "" {
+		h.opts.Context(event.Context{EventID: e.EventID, Harness: tag.Harness, Session: tag.Session, Agent: tag.Agent, Project: tag.Project, Process: "proxy"})
 	}
 }
 

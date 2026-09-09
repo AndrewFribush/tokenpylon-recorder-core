@@ -151,6 +151,17 @@ func itoa64(i int64) string {
 
 // Validate normalises what it can and rejects what must be right. It never
 // returns the offending value in the error, so an error can be logged.
+// Normalize makes the token counters disjoint, as the schema promises:
+// an adapter that reports the cached part inside input (OpenAI-style
+// usage) has it taken out, and the flag cleared. Idempotent.
+func (e *Event) Normalize() {
+	if e.CachedInInput != nil && *e.CachedInInput && e.InputTokens != nil && e.CachedTokens != nil && *e.InputTokens >= *e.CachedTokens {
+		in := *e.InputTokens - *e.CachedTokens
+		e.InputTokens = &in
+		e.CachedInInput = B(false)
+	}
+}
+
 func (e *Event) Validate() error {
 	e.Provider = strings.ToLower(strings.TrimSpace(e.Provider))
 	if !providerRe.MatchString(e.Provider) {
