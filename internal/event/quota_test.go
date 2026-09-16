@@ -19,7 +19,7 @@ func TestQuotaAnnotateAndLimits(t *testing.T) {
 		{Harness: "codex", Window: "5h", UsedPct: 99, ResetsAt: "2026-09-05T19:04:32Z", Plan: "plus"}, // ended
 		{Harness: "codex", Window: "7d", UsedPct: 28, ResetsAt: "2026-09-19T13:36:37Z", Plan: "pro"},
 	}
-	a := Annotate(qs)
+	a := Annotate(qs, now)
 	if a[2].AppliesTo != "claude-fable-5-1 only" || !strings.Contains(a[2].Meaning, "model class only") || !strings.Contains(a[2].Meaning, "not of the account") {
 		t.Fatalf("7d_oi: %q / %q", a[2].AppliesTo, a[2].Meaning)
 	}
@@ -48,6 +48,24 @@ func TestQuotaAnnotateAndLimits(t *testing.T) {
 	}
 	if _, ok := want["claude-code/claude-opus-5"]; ok {
 		t.Fatal("overage must not create a model line")
+	}
+	// Pace: 99% of the week gone at 86% used -> under; a fresh 5h bucket
+	// at 60% with 40% of its window gone -> over, out in 80 minutes.
+	if a[2].Pace != "under" || a[2].ElapsedPct != 99 || a[2].ProjectedPct != 87 {
+		t.Fatalf("7d_oi pace: %+v", a[2])
+	}
+	if f.Pace != "under" {
+		t.Fatalf("fable limit pace: %+v", f)
+	}
+	hot := Annotate([]Quota{{Harness: "claude-code", Window: "5h", UsedPct: 60, ResetsAt: now.Add(3 * time.Hour).Format(time.RFC3339)}}, now)[0]
+	if hot.Pace != "over" || hot.RunsOutAt == "" {
+		t.Fatalf("hot 5h: %+v", hot)
+	}
+	if ro, _ := time.Parse(time.RFC3339, hot.RunsOutAt); ro.Sub(now) < 79*time.Minute || ro.Sub(now) > 81*time.Minute {
+		t.Fatalf("60%% in 2h runs out 80 min later, got %v", ro.Sub(now))
+	}
+	if q := Annotate([]Quota{{Window: "7d", UsedPct: 1, ResetsAt: now.Add(7*24*time.Hour - time.Minute).Format(time.RFC3339)}}, now)[0]; q.Pace != "" {
+		t.Fatalf("a bucket 0.01%% into its window has no pace: %+v", q)
 	}
 	if !strings.Contains(QuotaHowToRead, "never a total") {
 		t.Fatal("how-to-read lost its point")
