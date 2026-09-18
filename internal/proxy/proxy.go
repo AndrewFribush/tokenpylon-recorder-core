@@ -111,7 +111,7 @@ func harnessFromUA(ua string) string {
 // are absent: the same harness and User-Agent calling again within
 // sessionIdle is the same session.
 func (h *Handler) tagOf(r *http.Request, now time.Time) clientTag {
-	t := clientTag{Harness: cleanTag(r.Header.Get(harnessHeader), 40), Session: cleanTag(r.Header.Get(sessionHeader), 120), Agent: cleanTag(r.Header.Get(agentHeader), 60), Project: cleanTag(r.Header.Get(projectHeader), 80)}
+	t := clientTag{Harness: cleanTag(r.Header.Get(harnessHeader), 40), Session: cleanTag(r.Header.Get(sessionHeader), 120), Agent: cleanTag(r.Header.Get(agentHeader), 60), Project: cleanProject(r.Header.Get(projectHeader))}
 	if t.Harness == "" {
 		t.Harness = harnessFromUA(r.Header.Get("User-Agent"))
 	}
@@ -227,6 +227,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := r.URL.Path
+	if strings.HasPrefix(path, "/tag/") {
+		var ok bool
+		r, path, ok = withLaunchTags(r, path)
+		if !ok {
+			writeJSON(w, 400, map[string]any{"error": "invalid local project tag"})
+			return
+		}
+	}
 	route, ok := Resolve(path, h.opts.AllowPrivate)
 	if !ok {
 		names := make([]string, 0, len(Upstreams))
@@ -451,6 +459,11 @@ var safeHost = regexp.MustCompile(`[^a-z0-9_.-]`)
 
 func (h *Handler) record(rt Route, started time.Time, res *http.Response, u *Usage, head []byte, pr *peekReader, firstByte *time.Time, cancelled, complete bool, op, mode, callID string, attempt int, gatewayHint string, stream bool, tag clientTag) {
 	defer func() { _ = recover() }()
+	// Token counting is a utility request, not an inference. Its response has
+	// no generation usage; recording it inflates calls and missing-usage counts.
+	if strings.TrimSuffix(rt.Rest, "/") == "/v1/messages/count_tokens" {
+		return
+	}
 	if pr != nil && len(head) == 0 {
 		head = pr.Head()
 	}
