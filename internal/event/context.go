@@ -3,7 +3,8 @@ package event
 // Context is what a harness knows about a call beyond the call itself:
 // which session it belongs to, which agent made it, which project it was
 // working in. It stays on the user's machine (paths and branch names are
-// theirs) and is never uploaded; the page joins it to events by id.
+// theirs); the page joins it to events by id. Explicit planner participation
+// can share project basenames and hashed session identities, never this object.
 type Context struct {
 	EventID string   `json:"event_id"`
 	Harness string   `json:"harness"` // claude-code | codex
