@@ -6,16 +6,26 @@ package event
 // theirs); the page joins it to events by id. Explicit planner participation
 // can share project basenames and hashed session identities, never this object.
 type Context struct {
-	EventID string   `json:"event_id"`
-	Harness string   `json:"harness"` // claude-code | codex
-	Session string   `json:"session"` // the harness's session or thread id
-	Label   string   `json:"label"`   // a human name the harness gave the session, if any
-	Agent   string   `json:"agent"`   // main | agent-<id> (a subagent) | sidechain
-	Project string   `json:"project"` // last path element of the working directory
-	Cwd     string   `json:"cwd"`
-	Branch  string   `json:"branch"`
-	Process string   `json:"process"` // cli | sdk | exec | ... as the harness names its entry point
-	Actions []Action `json:"actions,omitempty"`
+	EventID    string           `json:"event_id"`
+	Harness    string           `json:"harness"` // claude-code | codex
+	Session    string           `json:"session"` // the harness's session or thread id
+	Label      string           `json:"label"`   // a human name the harness gave the session, if any
+	Agent      string           `json:"agent"`   // main | agent-<id> (a subagent) | sidechain
+	Project    string           `json:"project"` // last path element of the working directory
+	Cwd        string           `json:"cwd"`
+	Branch     string           `json:"branch"`
+	Process    string           `json:"process"` // cli | sdk | exec | ... as the harness names its entry point
+	SourceKind string           `json:"source_kind,omitempty"`
+	Billing    *BillingIdentity `json:"billing,omitempty"`
+	Actions    []Action         `json:"actions,omitempty"`
+}
+
+// BillingIdentity is per-session provider evidence, not the current login.
+// A history parser cannot infer it from the harness, root, project or model.
+type BillingIdentity struct {
+	Kind                string `json:"kind"`
+	ProviderFingerprint string `json:"provider_fingerprint"`
+	Evidence            string `json:"evidence"`
 }
 
 // Mark is a session event worth counting that is not a model call: a

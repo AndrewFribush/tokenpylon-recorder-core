@@ -14,7 +14,7 @@ import (
 )
 
 const SchemaVersion = 2
-const RecorderVersion = "0.4.0"
+const RecorderVersion = "0.5.0"
 
 // AmountBasis says where a dollar figure came from.
 const (
