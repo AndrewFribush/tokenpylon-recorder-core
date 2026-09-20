@@ -26,18 +26,19 @@ const (
 
 // Event is the wire and storage shape. Pointer fields are nullable.
 type Event struct {
-	Schema          int     `json:"schema"`
-	EventID         string  `json:"event_id"`
-	InstallID       string  `json:"install_id"`
-	Adapter         string  `json:"adapter"` // proxy-openai | proxy-anthropic | litellm | openrouter-export | litellm-export
-	AdapterVersion  string  `json:"adapter_version"`
-	RecorderVersion string  `json:"recorder_version"`
-	OccurredAt      string  `json:"occurred_at"`
-	RecordedAt      string  `json:"recorded_at"`
-	TZOffsetMin     *int    `json:"tz_offset_min"`
-	LogicalCallID   *string `json:"logical_call_id"` // groups retries/fallbacks of one application call
-	Attempt         int     `json:"attempt"`
-	Calls           int     `json:"calls"` // 1 for an observed call; n for an imported daily aggregate standing for n calls
+	Capture         *CapturedBinding `json:"-"`
+	Schema          int              `json:"schema"`
+	EventID         string           `json:"event_id"`
+	InstallID       string           `json:"install_id"`
+	Adapter         string           `json:"adapter"` // proxy-openai | proxy-anthropic | litellm | openrouter-export | litellm-export
+	AdapterVersion  string           `json:"adapter_version"`
+	RecorderVersion string           `json:"recorder_version"`
+	OccurredAt      string           `json:"occurred_at"`
+	RecordedAt      string           `json:"recorded_at"`
+	TZOffsetMin     *int             `json:"tz_offset_min"`
+	LogicalCallID   *string          `json:"logical_call_id"` // groups retries/fallbacks of one application call
+	Attempt         int              `json:"attempt"`
+	Calls           int              `json:"calls"` // 1 for an observed call; n for an imported daily aggregate standing for n calls
 
 	Provider       string  `json:"provider"`        // who bills: openai, anthropic, openrouter, ...
 	Gateway        *string `json:"gateway"`         // litellm, openrouter, ... when a gateway sat in front
