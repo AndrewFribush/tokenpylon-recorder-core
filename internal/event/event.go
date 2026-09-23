@@ -74,6 +74,13 @@ type Event struct {
 	Complete    bool   `json:"complete"` // the response (or stream) finished
 
 	ProviderRequestID *string `json:"provider_request_id"`
+
+	// PriorRequestIDs are other ids the same call is known by, under which
+	// an earlier reader may have stored it (a harvester that changed its
+	// key). The spool supersedes a live row stored under one of them once
+	// this event's row is stored, so a key change rereads into one row per
+	// call instead of two. Local only: never uploaded.
+	PriorRequestIDs []string `json:"-"`
 }
 
 var (
