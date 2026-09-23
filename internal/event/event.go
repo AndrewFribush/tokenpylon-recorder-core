@@ -81,6 +81,16 @@ type Event struct {
 	// this event's row is stored, so a key change rereads into one row per
 	// call instead of two. Local only: never uploaded.
 	PriorRequestIDs []string `json:"-"`
+
+	// MayRepeat marks a harvested call whose id is local to one session
+	// file (legacy Codex keys a call "tc:<session>:<line time>"). Another
+	// file that repeats the call (a forked or resumed session replaying
+	// history, a parent session mirroring a subagent's turns) gives the
+	// same call a different id. The spool holds such an event back as a
+	// superseded repeat when a live row stored earlier records the same
+	// call: same adapter, instant, provider, model, turn and token counts.
+	// Local only: never uploaded.
+	MayRepeat bool `json:"-"`
 }
 
 var (
