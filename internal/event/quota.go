@@ -1,6 +1,7 @@
 package event
 
 import (
+	"encoding/json"
 	"math"
 	"sort"
 	"strconv"
@@ -206,6 +207,38 @@ func Limits(qs []Quota, now time.Time) []Limit {
 			}
 			out = append(out, l)
 		}
+	}
+	return out
+}
+
+// StatusLineQuotas reads the rate_limits object Claude Code passes to a
+// status line command (five_hour, seven_day and spend_limit, each with
+// used_percentage 0..100 and resets_at in Unix seconds) into meter readings
+// for the claude-code harness. It is the meter source when Claude Code talks
+// to Anthropic directly instead of through the proxy: the same windows as the
+// proxy's unified headers, but account-wide (no model scope) and only as fresh
+// as the last response the status line was told about. Absent or malformed
+// windows are skipped; nothing is invented.
+func StatusLineQuotas(raw []byte, now time.Time) []Quota {
+	var rl map[string]struct {
+		UsedPct  *float64 `json:"used_percentage"`
+		ResetsAt *int64   `json:"resets_at"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &rl) != nil {
+		return nil
+	}
+	windows := map[string]string{"five_hour": "5h", "seven_day": "7d", "spend_limit": "spend"}
+	var out []Quota
+	for _, key := range []string{"five_hour", "seven_day", "spend_limit"} {
+		v, ok := rl[key]
+		if !ok || v.UsedPct == nil || *v.UsedPct < 0 || *v.UsedPct > 10000 {
+			continue
+		}
+		q := Quota{Harness: "claude-code", Window: windows[key], UsedPct: *v.UsedPct, Note: "status line", ObservedAt: now.UTC().Format(time.RFC3339)}
+		if v.ResetsAt != nil && *v.ResetsAt > 0 {
+			q.ResetsAt = time.Unix(*v.ResetsAt, 0).UTC().Format(time.RFC3339)
+		}
+		out = append(out, q)
 	}
 	return out
 }
