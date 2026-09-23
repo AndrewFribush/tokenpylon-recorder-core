@@ -12,4 +12,8 @@ type SourceHealth struct {
 	Files          int    `json:"files"`
 	Events         int    `json:"events"`
 	SkippedRecords int    `json:"skipped_records"`
+	// Detail names the first thing that went wrong in the last scan: the
+	// reason and the file (relative to Root) or the root itself. Bounded;
+	// never record content.
+	Detail string `json:"detail,omitempty"`
 }
