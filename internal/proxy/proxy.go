@@ -53,10 +53,38 @@ type Options struct {
 	AllowPrivate bool // /proxy/127.0.0.1:port upstreams (LiteLLM, Ollama)
 	AnyHost      bool // skip the loopback Host check (container sidecar bound to 0.0.0.0)
 	Sink         Sink
-	Quota        func(event.Quota)   // rate-limit meters seen on responses (Anthropic); optional
-	Context      func(event.Context) // per-call session, agent and project tags; optional
+	Quota        func(event.Quota)           // rate-limit meters seen on responses (Anthropic); optional
+	Context      func(event.Context)         // per-call session, agent and project tags; optional
+	Admit        func(AdmitRequest) *Refusal // may this messages request go out? nil admits; optional
 	Log          func(string)
 }
+
+// AdmitRequest is what the proxy knows about a request before sending it:
+// the model it names and the session it belongs to (Claude Code's own
+// session id from the request metadata, else the session inferred for the
+// client), plus the harness the client's User-Agent announces.
+type AdmitRequest struct {
+	Harness string
+	Session string
+	Model   string
+}
+
+// Refusal is an admission the proxy must turn down. The client gets an
+// error in the provider's own shape, so Claude Code prints the message
+// and does not retry.
+type Refusal struct {
+	Message string
+}
+
+// admitBodyMax bounds how much of a request the admission check will hold
+// in memory. Anything larger is forwarded unjudged.
+const admitBodyMax = 64 << 20
+
+// sessionInBody finds Claude Code's session id in a messages request.
+// metadata.user_id is a JSON string holding JSON: {"device_id":…,
+// "account_uuid":…,"session_id":"<uuid>"}, its quotes escaped; older
+// clients sent "user_<hash>_account_<uuid>_session_<uuid>".
+var sessionInBody = regexp.MustCompile(`(?:session_id\\?"\s*:\s*\\?"|_session_)([0-9a-fA-F-]{36})`)
 
 // clientTag is what a request says about who is calling.
 type clientTag struct{ Harness, Session, Agent, Project string }
@@ -297,6 +325,33 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, rt Route) {
 			body = bytes.NewReader(out)
 			contentLength = int64(len(out))
 		}
+		head = buf[:min(len(buf), reqHeadBytes)]
+	} else if h.opts.Admit != nil && r.Method == http.MethodPost && rt.Upstream.Style == StyleAnthropic && op == "messages" && !strings.HasSuffix(strings.TrimSuffix(rt.Rest, "/"), "/count_tokens") && contentLength <= admitBodyMax {
+		// The usage guard judges the request by the model it actually names
+		// and the session it belongs to, both in the body, so the body is
+		// read before anything goes upstream. A refused request costs the
+		// provider nothing and is not recorded as a call.
+		buf, err := io.ReadAll(io.LimitReader(r.Body, admitBodyMax+1))
+		if err != nil {
+			writeJSON(w, 400, map[string]any{"error": "bad request body"})
+			return
+		}
+		if len(buf) <= admitBodyMax {
+			req := AdmitRequest{Harness: tag.Harness, Session: tag.Session}
+			if m := TopLevelModel(buf[:min(len(buf), reqHeadBytes)]); m != nil {
+				req.Model = *m
+			}
+			if m := sessionInBody.FindSubmatch(buf); m != nil {
+				req.Session = strings.ToLower(string(m[1]))
+			}
+			if ref := h.opts.Admit(req); ref != nil {
+				h.log(fmt.Sprintf("guard refused %s for %s: %s", req.Model, req.Session, ref.Message))
+				writeJSON(w, 403, map[string]any{"type": "error", "error": map[string]any{"type": "permission_error", "message": ref.Message}})
+				return
+			}
+		}
+		body = bytes.NewReader(buf)
+		contentLength = int64(len(buf))
 		head = buf[:min(len(buf), reqHeadBytes)]
 	} else if r.Method == http.MethodPost || r.Method == http.MethodPut {
 		// Peek the head for the model without holding the body.
