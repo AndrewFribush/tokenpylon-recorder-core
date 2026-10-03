@@ -1,0 +1,177 @@
+{
+  "source_repository": "TokenPylon private repository",
+  "source_head": "d9d0e31359297e1af2dcae21970c0b80385a430b",
+  "source_snapshot": "working-tree bytes; source_head is provenance, not a claim that every file matches HEAD",
+  "extracted_on": "2026-10-03",
+  "module": "github.com/AndrewFribush/tokenpylon-recorder-core",
+  "files": [
+    {
+      "source": "recorder/internal/proxy/admit_test.go",
+      "path": "internal/proxy/admit_test.go",
+      "source_sha256": "db67f4cbafc4d4b9728d78f16a817aaf944a3d6530640a811ac9bb6a141cccbc",
+      "showcase_sha256": "e1dee27f398e070ddc1c6cf320d1936c9669cd4cb991b1ac16b6a00166313231",
+      "adaptation": "module import path only"
+    },
+    {
+      "source": "recorder/internal/proxy/adversarial_test.go",
+      "path": "internal/proxy/adversarial_test.go",
+      "source_sha256": "a43fb0d69b21c203b1d48c1c0639076c3df96b8052661d5c9ae6a0dc0c9decd1",
+      "showcase_sha256": "549d96a51513db5cf36b979625248285ef9ad0d8f170a59a31fe3f4f57ebba5a",
+      "adaptation": "module import path only"
+    },
+    {
+      "source": "recorder/internal/proxy/fuzz_test.go",
+      "path": "internal/proxy/fuzz_test.go",
+      "source_sha256": "ab5faf550d8933fb933309848def5f4132140fa3e21344a63729dde8378d23d8",
+      "showcase_sha256": "ab5faf550d8933fb933309848def5f4132140fa3e21344a63729dde8378d23d8",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/proxy/idcheck_test.go",
+      "path": "internal/proxy/idcheck_test.go",
+      "source_sha256": "9001b904532a48c94c111f047434e32165e29fa78fbe72091587088cbc6a7e13",
+      "showcase_sha256": "9001b904532a48c94c111f047434e32165e29fa78fbe72091587088cbc6a7e13",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/proxy/launch_tags.go",
+      "path": "internal/proxy/launch_tags.go",
+      "source_sha256": "40aa805d08cbab87ce33b0fff80da481f86ec9319e2360314ba83cc541421f38",
+      "showcase_sha256": "40aa805d08cbab87ce33b0fff80da481f86ec9319e2360314ba83cc541421f38",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/proxy/launch_tags_test.go",
+      "path": "internal/proxy/launch_tags_test.go",
+      "source_sha256": "d19e6908ebb733acb585f2d12c4a86b89ba4a000f6826b7b5cb018ca866023bf",
+      "showcase_sha256": "d522bdecf32624db662d509431d352db0b7a0effb978e7a49d2efd6ddf68cf2f",
+      "adaptation": "module import path only"
+    },
+    {
+      "source": "recorder/internal/proxy/proxy.go",
+      "path": "internal/proxy/proxy.go",
+      "source_sha256": "93cad727631c08f8639abb2cd48afb4f8b255aca2d05f48a482847fedb405258",
+      "showcase_sha256": "28d58c619092f70e4fb8f3392d2dd57b504657657b91a22e4a40c4346a8b85e2",
+      "adaptation": "module import path only"
+    },
+    {
+      "source": "recorder/internal/proxy/proxy_test.go",
+      "path": "internal/proxy/proxy_test.go",
+      "source_sha256": "f99645889af0a9766fa626de42c1892bc1eb3e0182749240047cf06982a27916",
+      "showcase_sha256": "668931d278f6e1e14e7b9bb1df8bccccbade7461a77854c7f00f3e8079f5b2ab",
+      "adaptation": "module import path only"
+    },
+    {
+      "source": "recorder/internal/proxy/quota.go",
+      "path": "internal/proxy/quota.go",
+      "source_sha256": "058cab918d74c82e094b40f93a749d44aa93abadcb0f9e618b3d8ee5d593be66",
+      "showcase_sha256": "75594b5ba0f72124cd3278aab735a79b62ca8c277d0604a1b3b990b446c5bc5c",
+      "adaptation": "module import path only"
+    },
+    {
+      "source": "recorder/internal/proxy/quota_test.go",
+      "path": "internal/proxy/quota_test.go",
+      "source_sha256": "5ff96430c07851e5ba2c9a624f71df7e9e152d8bf926dc0046c5b96da6337e0f",
+      "showcase_sha256": "5ff96430c07851e5ba2c9a624f71df7e9e152d8bf926dc0046c5b96da6337e0f",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/proxy/tag_test.go",
+      "path": "internal/proxy/tag_test.go",
+      "source_sha256": "04a5dc8b2188d7e5b452abd35a5fc3dd06acf82370bc54f8498a130909f6bf65",
+      "showcase_sha256": "04a5dc8b2188d7e5b452abd35a5fc3dd06acf82370bc54f8498a130909f6bf65",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/proxy/token_count_test.go",
+      "path": "internal/proxy/token_count_test.go",
+      "source_sha256": "33be24decc4a4bd712d5ba4b66dc9ab6307363713534916fb2bef7758934277c",
+      "showcase_sha256": "33be24decc4a4bd712d5ba4b66dc9ab6307363713534916fb2bef7758934277c",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/proxy/upstreams.go",
+      "path": "internal/proxy/upstreams.go",
+      "source_sha256": "56afa02aa96d52f236e85bad258599025adc48cbaf08ae2101cfcb4ede6261e9",
+      "showcase_sha256": "56afa02aa96d52f236e85bad258599025adc48cbaf08ae2101cfcb4ede6261e9",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/proxy/usage.go",
+      "path": "internal/proxy/usage.go",
+      "source_sha256": "ce7d02b51aab8180c74f5d146337f248a349e5d016c7d69d4b955bb5881faa5e",
+      "showcase_sha256": "ce7d02b51aab8180c74f5d146337f248a349e5d016c7d69d4b955bb5881faa5e",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/proxy/usage_test.go",
+      "path": "internal/proxy/usage_test.go",
+      "source_sha256": "9fa5fdb0aff4acc1467050373ee4d23c35e3627bb84ffc1292934cd501ce9e11",
+      "showcase_sha256": "9fa5fdb0aff4acc1467050373ee4d23c35e3627bb84ffc1292934cd501ce9e11",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/event/binding.go",
+      "path": "internal/event/binding.go",
+      "source_sha256": "d4a87296928a6d0fd17fc68410ed4ee263cb74263daaa4200e29ccae637814a2",
+      "showcase_sha256": "d4a87296928a6d0fd17fc68410ed4ee263cb74263daaa4200e29ccae637814a2",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/event/binding_test.go",
+      "path": "internal/event/binding_test.go",
+      "source_sha256": "c6cb18097c6a9af4819ef237c66d9c4a263cac1314605db4bb5d9caccf327086",
+      "showcase_sha256": "c6cb18097c6a9af4819ef237c66d9c4a263cac1314605db4bb5d9caccf327086",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/event/context.go",
+      "path": "internal/event/context.go",
+      "source_sha256": "6cb0fed88e4d79a8d15310483b4aef37a291f67bdd6b3e791634e9b9bba25fdc",
+      "showcase_sha256": "6cb0fed88e4d79a8d15310483b4aef37a291f67bdd6b3e791634e9b9bba25fdc",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/event/event.go",
+      "path": "internal/event/event.go",
+      "source_sha256": "f94170ab1e1335942054265ef6ff1b2e7fa64a2f6310682305bf30eb3a8f845c",
+      "showcase_sha256": "f94170ab1e1335942054265ef6ff1b2e7fa64a2f6310682305bf30eb3a8f845c",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/event/quota.go",
+      "path": "internal/event/quota.go",
+      "source_sha256": "48c0800021a8a47c9bef4f36446b30f8bfe0c250c1f6bc91d8532d734166fc66",
+      "showcase_sha256": "48c0800021a8a47c9bef4f36446b30f8bfe0c250c1f6bc91d8532d734166fc66",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/event/quota_statusline_test.go",
+      "path": "internal/event/quota_statusline_test.go",
+      "source_sha256": "a84b5e3779d71c6050dc7a8178b6217a2678cfb025dbeaf314e2717f61a62fa9",
+      "showcase_sha256": "a84b5e3779d71c6050dc7a8178b6217a2678cfb025dbeaf314e2717f61a62fa9",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/event/quota_test.go",
+      "path": "internal/event/quota_test.go",
+      "source_sha256": "0427ae3459447dc9deea9734556db251423a59b01dd53412aedcf49bddfffe72",
+      "showcase_sha256": "0427ae3459447dc9deea9734556db251423a59b01dd53412aedcf49bddfffe72",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/event/source_health.go",
+      "path": "internal/event/source_health.go",
+      "source_sha256": "554f0aab295313ce90011f48584b8ffa989fb7593b60bffa234bd3e804c78454",
+      "showcase_sha256": "554f0aab295313ce90011f48584b8ffa989fb7593b60bffa234bd3e804c78454",
+      "adaptation": "none"
+    },
+    {
+      "source": "recorder/internal/event/turn.go",
+      "path": "internal/event/turn.go",
+      "source_sha256": "3c2b9fbe29d5dbcbbaf660e3248b019de401244c1795f10bef8e069c2577282d",
+      "showcase_sha256": "3c2b9fbe29d5dbcbbaf660e3248b019de401244c1795f10bef8e069c2577282d",
+      "adaptation": "none"
+    }
+  ]
+}

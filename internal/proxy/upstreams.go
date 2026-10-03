@@ -1,0 +1,170 @@
+package proxy
+
+import (
+	"net"
+	"regexp"
+	"strings"
+)
+
+// Style selects the response adapter.
+type Style string
+
+const (
+	StyleOpenAI    Style = "openai"    // chat/completions, responses, embeddings, and everything OpenAI-compatible
+	StyleAnthropic Style = "anthropic" // messages
+	StyleGoogle    Style = "google"    // generateContent (usageMetadata)
+)
+
+type Upstream struct {
+	Host     string
+	Port     int
+	Insecure bool // plain HTTP; loopback upstreams only
+	BasePath string
+	Style    Style
+	Direct   bool // the provider serves its own models: host evidence "direct_provider"
+}
+
+// Upstreams: path prefix -> upstream.
+var Upstreams = map[string]Upstream{
+	"openai":            {Host: "api.openai.com", Style: StyleOpenAI, Direct: true},
+	"anthropic":         {Host: "api.anthropic.com", Style: StyleAnthropic, Direct: true},
+	"gemini":            {Host: "generativelanguage.googleapis.com", Style: StyleGoogle, Direct: true},
+	"openrouter":        {Host: "openrouter.ai", BasePath: "/api", Style: StyleOpenAI},
+	"vercel_ai_gateway": {Host: "ai-gateway.vercel.sh", Style: StyleOpenAI},
+	"hf-router":         {Host: "router.huggingface.co", Style: StyleOpenAI},
+	"deepseek":          {Host: "api.deepseek.com", Style: StyleOpenAI, Direct: true},
+	"moonshot":          {Host: "api.moonshot.ai", Style: StyleOpenAI, Direct: true},
+	"zai":               {Host: "api.z.ai", BasePath: "/api/paas", Style: StyleOpenAI, Direct: true},
+	"minimax":           {Host: "api.minimax.io", Style: StyleOpenAI, Direct: true},
+	"dashscope_intl":    {Host: "dashscope-intl.aliyuncs.com", BasePath: "/compatible-mode", Style: StyleOpenAI, Direct: true},
+	"byteplus":          {Host: "ark.ap-southeast.bytepluses.com", BasePath: "/api", Style: StyleOpenAI, Direct: true},
+	"siliconflow":       {Host: "api.siliconflow.com", Style: StyleOpenAI, Direct: true},
+	"stepfun":           {Host: "api.stepfun.com", Style: StyleOpenAI, Direct: true},
+	"01ai":              {Host: "api.01.ai", Style: StyleOpenAI, Direct: true},
+	"groq":              {Host: "api.groq.com", BasePath: "/openai", Style: StyleOpenAI, Direct: true},
+	"cerebras":          {Host: "api.cerebras.ai", Style: StyleOpenAI, Direct: true},
+	"together_ai":       {Host: "api.together.xyz", Style: StyleOpenAI, Direct: true},
+	"fireworks_ai":      {Host: "api.fireworks.ai", BasePath: "/inference", Style: StyleOpenAI, Direct: true},
+	"deepinfra":         {Host: "api.deepinfra.com", BasePath: "/v1/openai", Style: StyleOpenAI, Direct: true},
+	"xai":               {Host: "api.x.ai", Style: StyleOpenAI, Direct: true},
+	"mistral":           {Host: "api.mistral.ai", Style: StyleOpenAI, Direct: true},
+	"perplexity":        {Host: "api.perplexity.ai", Style: StyleOpenAI, Direct: true},
+}
+
+// Gateways: upstreams that route to other hosts. Their name goes in
+// `gateway`; the billed provider is still the gateway (it charges you).
+var Gateways = map[string]bool{"openrouter": true, "hf-router": true, "vercel_ai_gateway": true}
+
+// Route is a resolved request target.
+type Route struct {
+	Upstream Upstream
+	Provider string // billing provider key
+	Rest     string // path after the prefix
+	Generic  bool   // /proxy/<host>: dialed through the address-checked transport
+}
+
+var genericRe = regexp.MustCompile(`^/([A-Za-z0-9.:\[\]-]+?)(?::(\d+))?(/.*)?$`)
+var hostnameRe = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// validHost: a real hostname or IP literal. ".." and friends never reach a
+// dialer. Loopback, private and link-local targets (Ollama, LM Studio, a
+// LiteLLM on the LAN) are allowed unless the collector was started with
+// --restrict-private: only local processes can reach this listener, and
+// they can reach those addresses directly anyway.
+func validHost(host string, allowPrivate bool) (loop bool, ok bool) {
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		if ip.IsLoopback() {
+			return true, allowPrivate
+		}
+		if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+			return false, allowPrivate
+		}
+		return false, true
+	}
+	if host == "localhost" {
+		return true, allowPrivate
+	}
+	return false, hostnameRe.MatchString(host)
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
+}
+
+// Resolve maps a request path to a route. `/proxy/<host>[:port]/...`
+// reaches anything OpenAI-shaped over HTTPS; a loopback host is plain HTTP
+// and only allowed when allowPrivate is set (LiteLLM/Ollama in front).
+func Resolve(path string, allowPrivate bool) (Route, bool) {
+	path = strings.TrimPrefix(path, "/")
+	head, rest, _ := strings.Cut(path, "/")
+	rest = "/" + rest
+	if head == "proxy" {
+		m := genericRe.FindStringSubmatch(rest)
+		if m == nil {
+			return Route{}, false
+		}
+		host := strings.ToLower(m[1])
+		port := 0
+		if m[2] != "" {
+			for _, c := range m[2] {
+				port = port*10 + int(c-'0')
+			}
+			if port < 1 || port > 65535 {
+				return Route{}, false
+			}
+		}
+		loop, ok := validHost(host, allowPrivate)
+		if !ok {
+			return Route{}, false
+		}
+		provider := strings.TrimPrefix(host, "api.")
+		if i := strings.LastIndex(provider, "."); i > 0 {
+			provider = provider[:i]
+		}
+		provider = regexp.MustCompile(`[^a-z0-9_.-]`).ReplaceAllString(provider, "_")
+		if loop {
+			provider = "local" // Ollama, LM Studio, a LiteLLM on this machine: not a billing provider
+		}
+		r := "/"
+		if m[3] != "" {
+			r = m[3]
+		}
+		return Route{Upstream: Upstream{Host: host, Port: port, Insecure: loop, Style: StyleOpenAI, Direct: true}, Provider: provider, Rest: r, Generic: true}, true
+	}
+	u, ok := Upstreams[head]
+	if !ok {
+		return Route{}, false
+	}
+	return Route{Upstream: u, Provider: head, Rest: rest}, true
+}
+
+// Operation and Mode from the path.
+func operationOf(rest string) (op, mode string) {
+	switch {
+	case strings.Contains(rest, "/chat/completions"):
+		return "chat", "chat"
+	case strings.Contains(rest, "/responses"):
+		return "responses", "chat"
+	case strings.Contains(rest, "/messages"):
+		return "messages", "chat"
+	case strings.Contains(rest, "/embeddings"):
+		return "embeddings", "embedding"
+	case strings.Contains(rest, "/rerank"):
+		return "rerank", "rerank"
+	case strings.Contains(rest, "/images"):
+		return "images", "image_generation"
+	case strings.Contains(rest, "/audio/speech"):
+		return "speech", "audio_speech"
+	case strings.Contains(rest, "/audio/transcriptions"):
+		return "transcription", "audio_transcription"
+	case strings.Contains(rest, ":generateContent") || strings.Contains(rest, ":streamGenerateContent"):
+		return "chat", "chat"
+	case strings.Contains(rest, "/completions"):
+		return "chat", "chat"
+	}
+	return "other", "other"
+}
