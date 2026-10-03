@@ -40,6 +40,6 @@ The demo starts two temporary loopback HTTP listeners, makes four synthetic call
 - Usage is what a provider reports, not an independently measured invoice or local token count. The demo proves behavior against synthetic responses, not compatibility with every current provider API.
 - This snapshot omits SQLite, the dashboard, transcript scanning, uploader, hosted planner, accounts, price catalogs, credentials, service installation, and release packaging. It is not the complete TokenPylon recorder distribution.
 
-`PROVENANCE.json` records the original working-tree file hashes and extraction adaptations. Copied source is unchanged except for module import paths. No private Git history or runtime data is included.
+`PROVENANCE.json` records the original working-tree file hashes and extraction adaptations. Copied source is unchanged except for module import paths. [Development history](HISTORY.md) preserves the original changes to these 24 Go files. Runtime data and history outside those files are excluded.
 
 Copyright 2026 Andrew Fribush. All rights reserved. See `NOTICE`; no open-source license is granted.
